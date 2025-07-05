@@ -1,39 +1,42 @@
-from models.state import State
-from services.vectordb import advanced_retrieve
-from langchain_core.runnables import RunnableConfig
 import concurrent.futures
+from typing import Dict, List
+from models.state import State
+from services.vectordb import get_retrieved_docs
+from langchain.schema import Document
+from config import THREAD_ID
 
 class RetrievalNode:
-    def __init__(self, config: RunnableConfig):
-        self.config = config
-
-    def _retrieve_for_task(self, task: str, thread_id: str):
+    def _retrieve_for_task(self, task_plan, thread_id: str) -> List[Document]:
         """Helper function to retrieve documents for a single task."""
-        print(f"---STARTING RETRIEVAL FOR TASK: '{task}'---")
-        retrieved_docs = advanced_retrieve(query=task, thread_id=thread_id)
-        print(f"---COMPLETED RETRIEVAL FOR TASK: '{task}'---")
+        task = task_plan.task
+        strategy = task_plan.retrieval_strategy
+        print(f"---STARTING RETRIEVAL FOR TASK: '{task}' (Strategy: {strategy})---")
+        retrieved_docs = get_retrieved_docs(query=task, thread_id=thread_id, strategy=strategy)
+        # Add task info to metadata for the aggregator
+        for doc in retrieved_docs:
+            doc.metadata["source_task"] = task
         return retrieved_docs
 
-    def invoke(self, state: State):
+    def invoke(self, state: State) -> Dict[str, List[Document]]:
         """
-        Retrieves documents for each task in parallel and aggregates them.
+        Retrieves documents for each task in parallel based on the orchestrated plan.
         """
-        tasks = state.get("tasks", [])
-        thread_id = self.config.get("configurable", {}).get("thread_id")
-        
-        if not tasks or not thread_id:
+        do_retrieval = state.get("do_retrieval", False)
+        if not do_retrieval:
+            print("Skipping retrieval as per intent detection.")
             return {"retrieved_docs": []}
 
-        print(f"---RETRIEVING IN PARALLEL FOR {len(tasks)} TASKS---")
-        all_docs = []
+        task_plans = state.get("task_plans", [])
         
-        # Use a ThreadPoolExecutor to run retrieval for all tasks concurrently
+        if not task_plans or not THREAD_ID:
+            return {"retrieved_docs": []}
+
+        print(f"---RETRIEVING IN PARALLEL FOR {len(task_plans)} TASKS---")
+        all_docs = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            # Create a future for each task
             future_to_task = {
-                executor.submit(self._retrieve_for_task, task, thread_id): task for task in tasks
+                executor.submit(self._retrieve_for_task, plan, THREAD_ID): plan.task for plan in task_plans
             }
-            # As each future completes, gather its results
             for future in concurrent.futures.as_completed(future_to_task):
                 try:
                     all_docs.extend(future.result())
@@ -41,8 +44,6 @@ class RetrievalNode:
                     task_name = future_to_task[future]
                     print(f"Task '{task_name}' failed during retrieval: {e}")
 
-        # Simple de-duplication based on page content
         unique_docs = {doc.page_content: doc for doc in all_docs}.values()
-        
-        print("---AGGREGATED ALL PARALLEL RESULTS---")
-        return {"retrieved_docs": list(unique_docs)}
+        print(f"---AGGREGATED {len(unique_docs)} UNIQUE DOCUMENTS FROM ALL TASKS---")
+        return {"fused_docs": list(unique_docs)}

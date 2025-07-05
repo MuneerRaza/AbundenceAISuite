@@ -4,3 +4,4 @@ __pycache__/
 .env
 *.env
 chroma_db/
+bm25_cache/

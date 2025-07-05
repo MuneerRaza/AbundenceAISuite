@@ -1,11 +1,10 @@
-import time, hashlib, logging
+import time, hashlib, os, pickle
+import concurrent.futures
 from typing import List, Dict
 from unstructured.chunking.title import chunk_by_title
 from unstructured.partition.auto import partition
 # from langchain_huggingface.embeddings import HuggingFaceEmbeddings
-from langchain_community.cross_encoders import HuggingFaceCrossEncoder
-from langchain.retrievers.document_compressors.cross_encoder_rerank import CrossEncoderReranker
-from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriever
+from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 from langchain_community.retrievers import BM25Retriever
 from langchain_chroma import Chroma
 from langchain.schema import Document
@@ -14,24 +13,154 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-from config import USER_CHROMA_PATH, USER_COLLECTION, VECTOR_SEARCH_K
+from config import CACHE_DIR, USER_CHROMA_PATH, USER_COLLECTION, VECTOR_SEARCH_K
 
-logging.basicConfig(
-    format="%(asctime)s — %(levelname)s — %(message)s",
-    level=logging.INFO
-)
-
-from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 embedder = NVIDIAEmbeddings(model="baai/bge-m3")
-
 # embedder = HuggingFaceEmbeddings(model="BAAI/bge-m3")
 chroma = Chroma(
     persist_directory=USER_CHROMA_PATH,
     collection_name=USER_COLLECTION,
     embedding_function=embedder
 )
-reranker_ce = HuggingFaceCrossEncoder(model_name="cross-encoder/ms-marco-MiniLM-L4-v2")
-reranker = CrossEncoderReranker(model=reranker_ce, top_n=3)
+
+def _ingest_single_file(meta: dict) -> int:
+    """
+    Helper function for true parallel ingestion.
+    Handles the entire lifecycle of one file: read, chunk, embed, and add.
+    """
+    try:
+        print(f"-> Processing {meta['path']}...")
+        elements = partition(filename=meta["path"], strategy="fast")
+        chunks_as_elements = chunk_by_title(
+            elements, max_characters=1500, combine_text_under_n_chars=250
+        )
+        
+        docs = []
+        for element in chunks_as_elements:
+            doc = Document(page_content=element.text, metadata=element.metadata.to_dict())
+            doc.metadata.update(meta)
+            docs.append(doc)
+        
+        if not docs:
+            print(f"No text extracted from {meta['path']}. Skipping.")
+            return 0
+        
+        docs = filter_complex_metadata(docs)
+
+        chroma.add_documents(docs)
+        
+        return len(docs)
+    except Exception as e:
+        print(f"Error processing {meta['path']} in worker: {e}")
+        return 0
+
+def ingest_files(metas: List[dict]):
+    """
+    Ingests files with true end-to-end parallelism, including embedding.
+    """
+    metas_to_ingest = []
+    for meta in metas:
+        existing_docs = chroma._collection.get(where={"file_hash": meta["file_hash"]})
+        if existing_docs and existing_docs.get("ids"):
+             print(f"✅ Skipping '{os.path.basename(meta['path'])}'. Hash already exists in DB.")
+             continue
+        metas_to_ingest.append(meta)
+
+    if not metas_to_ingest:
+        print("--- All provided files have already been ingested. Nothing to do. ---")
+        return
+    
+    print(f"---STARTING PARALLEL INGESTION FOR {len(metas)} FILES---")
+    total_chunks_ingested = 0
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_meta = {executor.submit(_ingest_single_file, meta): meta for meta in metas}
+        
+        for future in concurrent.futures.as_completed(future_to_meta):
+            chunks_count = future.result()
+            total_chunks_ingested += chunks_count
+
+    print(f"✅ Ingestion complete. Ingested a total of {total_chunks_ingested} chunks from {len(metas)} files.")
+
+
+def get_bm25_retriever(thread_id: str, documents: List[Document]):
+    """
+    Builds or loads a cached BM25 retriever to avoid re-computation.
+    """
+    cache_dir = CACHE_DIR
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, f"{thread_id}.pkl")
+
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            print(f"Loading cached BM25 index for thread '{thread_id}'")
+            return pickle.load(f)
+    else:
+        print(f"Creating and caching new BM25 index for thread '{thread_id}'")
+        bm25 = BM25Retriever.from_documents(documents)
+        bm25.k = VECTOR_SEARCH_K
+        with open(cache_path, "wb") as f:
+            pickle.dump(bm25, f)
+        return bm25
+
+def reciprocal_rank_fusion(results: list[list[Document]], k=60):
+    """
+    Merges multiple ranked lists of documents using RRF.
+    """
+    fused_scores = {}
+    for doc_list in results:
+        for rank, doc in enumerate(doc_list):
+            doc_str = doc.page_content
+            if doc_str not in fused_scores:
+                fused_scores[doc_str] = {"doc": doc, "score": 0}
+            fused_scores[doc_str]["score"] += 1 / (rank + k)
+
+    reranked_results = sorted(fused_scores.values(), key=lambda x: x["score"], reverse=True)
+    return [item["doc"] for item in reranked_results]
+
+def get_retrieved_docs(query: str, thread_id: str, strategy: str = "hybrid") -> List[Document]:
+    """
+    Performs hybrid retrieval using Vector Search and BM25, then fuses the results with RRF.
+    This is the first stage before re-ranking.
+    """
+    docs_for_thread = chroma.get(
+        where={"thread_id": thread_id}, include=["documents", "metadatas"]
+    )
+    documents = [
+        Document(page_content=doc, metadata=meta)
+        for doc, meta in zip(docs_for_thread.get("documents", []), docs_for_thread.get("metadatas", []))
+    ]
+
+    if not documents:
+        print(f"No documents found for thread_id: {thread_id}")
+        return []
+
+    # --- NEW: Hybrid Search with RRF Logic ---
+    t0 = time.time()
+    retrieved_docs = []
+
+    # 1. Vector Search (Dense)
+    if strategy in ["vector_search", "hybrid"]:
+        print("-> Performing dense (vector) search...")
+        dense_retriever = chroma.as_retriever(
+            search_kwargs={"k": VECTOR_SEARCH_K, "filter": {"thread_id": thread_id}}
+        )
+        retrieved_docs.append(dense_retriever.invoke(query))
+
+    # 2. Keyword Search (Sparse)
+    if strategy in ["keyword_search", "hybrid"]:
+        print("-> Performing sparse (keyword) search...")
+        bm25_retriever = get_bm25_retriever(thread_id, documents)
+        retrieved_docs.append(bm25_retriever.invoke(query))
+
+    # 3. Fuse results with RRF
+    if len(retrieved_docs) > 1:
+        print("-> Fusing results with RRF...")
+        fused_docs = reciprocal_rank_fusion(retrieved_docs)
+    else:
+        fused_docs = retrieved_docs[0] if retrieved_docs else []
+
+    print(f"Query '{query}' on thread '{thread_id}' -> {len(fused_docs)} docs in {time.time() - t0:.2f}s")
+    return fused_docs[:VECTOR_SEARCH_K] # Return top K results after fusion
 
 def file_hash(path: str) -> str:
     h = hashlib.sha256()
@@ -39,6 +168,21 @@ def file_hash(path: str) -> str:
         for chunk in iter(lambda: f.read(4096), b""):
             h.update(chunk)
     return h.hexdigest()
+
+def skip_if_exists(path: str, thread_id: str) -> bool:
+    """
+    Checks if a file with the same path and thread_id already exists in the collection.
+    If it does, skips ingestion.
+    """
+    existing_docs = chroma._collection.get(where={
+        "path": path,
+        "thread_id": thread_id
+    }, include=["metadatas"])
+    
+    if existing_docs and existing_docs.get("metadatas"):
+        print(f"Skipping ingestion for {path} as it already exists in the collection.")
+        return True
+    return False
 
 def load_paths(paths: List[str], thread_id: str) -> List[Dict]:
     metas = []
@@ -50,96 +194,50 @@ def load_paths(paths: List[str], thread_id: str) -> List[Dict]:
         })
     return metas
 
-def ingest(metas: List[Dict]):
-    for m in metas:
-        exists = chroma._collection.get(
-            where={"$and": [{"thread_id": m["thread_id"]}, {"file_hash": m["file_hash"]}]}
-        )
-        if exists and exists.get("documents"):
-            logging.info(f"SKIP {m['path']}: already processed")
-            continue
-        ld_start = time.time()
-        try:
-            elements = partition(filename=m["path"], strategy="fast", languages=['en'])
-            chunks_as_elements = chunk_by_title(
-                elements,
-                max_characters=512,
-                combine_text_under_n_chars=128
-            )
-        except Exception as e:
-            logging.error(f"Failed to load {m['path']} with Unstructured: {e}")
-            continue 
-        logging.info(f"Unstructured load time: {time.time() - ld_start:.2f}s for {m['path']}")
-        sp_start = time.time()
+def delete_by_thread_id(thread_id: str):
+    """Deletes all documents associated with a specific thread_id."""
+    try:
+        chroma._collection.delete(where={"thread_id": thread_id})
+        print(f"✅ Successfully deleted all documents for thread_id: '{thread_id}'")
+    except Exception as e:
+        print(f"Error deleting documents for thread_id '{thread_id}': {e}")
 
-        chunks = []
-        for element in chunks_as_elements:
-            metadata = element.metadata.to_dict()
-            
-            metadata.update(m)
-            chunks.append(Document(page_content=element.text, metadata=metadata))
-        chunks = filter_complex_metadata(chunks)
-        logging.info(f"Text splitting time: {time.time() - sp_start:.2f}s for {m['path']} → {len(chunks)} chunks")
-        
-        for chunk in chunks:
-            chunk.metadata.update(m)
-        
-        if not chunks:
-            logging.warning(f"No text chunks extracted from {m['path']}. Skipping ingestion.")
-            continue
-        start = time.time()
-        chroma.add_documents(chunks)
-        logging.info(f"Ingested {m['path']} → {len(chunks)} chunks in {time.time()-start:.2f}s")
-
-def advanced_retrieve(query: str, thread_id: str) -> List[Document]:
-    docs_for_thread = chroma.get(
-        where={"thread_id": thread_id},
-        include=["documents", "metadatas"]
-    )
-    documents = [
-        Document(page_content=doc, metadata=meta)
-        for doc, meta in zip(docs_for_thread.get("documents", []), docs_for_thread.get("metadatas", []))
-    ]
-
-    if not documents:
-        logging.warning(f"No documents found for thread_id: {thread_id}")
-        return []
-    
-    bm25_retriever = BM25Retriever.from_documents(documents)
-    bm25_retriever.k = VECTOR_SEARCH_K
-
-    dense_retriever = chroma.as_retriever(
-        search_kwargs={
-            "k": VECTOR_SEARCH_K,
-            "filter": {"thread_id": thread_id}
-        }
-    )
-
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=[bm25_retriever, dense_retriever],
-        weights=[0.5, 0.5] 
-    )
-
-    compression_retriever = ContextualCompressionRetriever(
-        base_retriever=ensemble_retriever,
-        base_compressor=reranker
-    )
-
-    t0 = time.time()
-    docs = compression_retriever.invoke(query)
-    logging.info(f"Query '{query}' on thread_id '{thread_id}' → {len(docs)} docs in {time.time() - t0:.2f}s")
-    return docs
-
-def main(paths: List[str], query: str, thread_id: str):
-    metas = load_paths(paths, thread_id)
-    ingest(metas)
-    docs = advanced_retrieve(query, thread_id)
-    for d in docs:
-        print(f"---\n{d.metadata}\n{d.page_content}\n")
+def delete_by_hash(file_hash: str):
+    """Deletes all documents associated with a specific file_hash."""
+    try:
+        chroma._collection.delete(where={"file_hash": file_hash})
+        print(f"✅ Successfully deleted all documents for file_hash: '{file_hash}'")
+    except Exception as e:
+        print(f"Error deleting documents for file_hash '{file_hash}': {e}")
 
 if __name__ == "__main__":
-    # This example will now use the new Unstructured-based ingestion
+    import time
+    
+    # --- Test Setup ---
+    # Make sure this path is correct for your system
     file_list = [r"C:\Users\MuneerRaza\Downloads\CognifootAI_FYP_report_final.pdf"]
     query = "What is the accuracy of latent classifier they acheived?"
     thread_id = "b"
-    main(file_list, query, thread_id)
+
+    # --- Ingestion Timing ---
+    print("\n--- TIMING INGESTION ---")
+    ingest_start_time = time.time()
+
+    metas = load_paths(file_list, thread_id)
+    ingest_files(metas) # This now calls the parallel ingestor
+    ingest_end_time = time.time()
+    print(f"✅ Ingestion took: {ingest_end_time - ingest_start_time:.2f} seconds.")
+
+    # --- Retrieval Timing ---
+    print("\n--- TIMING RETRIEVAL ---")
+    retrieve_start_time = time.time()
+    # The retrieval function was renamed to get_retrieved_docs
+    docs = get_retrieved_docs(query, thread_id)
+    for doc in docs:
+        print(f"Retrieved doc: {doc.page_content[:100]}... (Metadata: {doc.metadata})")
+    print(f"Retrieved {len(docs)} documents.")
+    retrieve_end_time = time.time()
+    print(f"✅ Retrieval took: {retrieve_end_time - retrieve_start_time:.2f} seconds.")
+
+    total_time = (ingest_end_time - ingest_start_time) + (retrieve_end_time - retrieve_start_time)
+    print(f"\nTotal script execution time: {total_time:.2f} seconds.")

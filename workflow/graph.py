@@ -1,112 +1,116 @@
-import re
-from langchain_core.messages import BaseMessage
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import StateGraph, END
+from langchain_core.runnables import RunnableParallel
 from langchain_groq import ChatGroq
-from services.summarizer import SummarizerNode
-# from services.rewriter import RewriterNode
-from services.query_router import QueryRouterNode
+
+# Import all nodes
+from services.intent_detection_node import IntentDetectionNode
 from services.decompose_node import DecomposeNode
+from services.orchestration_node import OrchestratorNode
 from services.retrieval_node import RetrievalNode
+from services.rerank_node import RerankNode
 from services.search_node import SearchNode
 from services.aggregation_node import AggregationNode
 from services.call_model import CallModelNode
+
 from models.state import State
 from utils.checkpointer import checkpointer
-from config import SUMMARY_THRESHOLD, MODEL_ID, UTILS_MODEL_ID, THREAD_ID
+from config import MODEL_ID, UTILS_MODEL_ID
 
-from dotenv import load_dotenv
-load_dotenv()
-
-# TODO: setup proper config
-
-from langchain_core.runnables import RunnableConfig
-
-config = RunnableConfig(configurable={"thread_id": THREAD_ID})
-
-def summary_router(state):
-    if len(state.get("recent_messages", [])) > SUMMARY_THRESHOLD:
-        return "summarize"
-    else:
-        return "continue"
-
-def search_router(state: State) -> str:
-    if not state["recent_messages"]:
-        return "no"
-    # TODO: Check boolean flag in state for web search
-
-    content = state["user_query"] 
-
-    url_pattern = r'\b((?:https?://|www\.)[^\s,<>"]+)'
-    if re.search(url_pattern, content):
-        return "yes"
-
-    return "no"
-    
-
-model = ChatGroq(model=MODEL_ID)
+# --- Node Initialization ---
 utils_model = ChatGroq(model=UTILS_MODEL_ID)
-summarizer = SummarizerNode(llm=utils_model)
-# rewriter = RewriterNode(llm=utils_model)
-query_router = QueryRouterNode(llm=utils_model)
+main_model = ChatGroq(model=MODEL_ID)
+
+intent_detector = IntentDetectionNode()
 decomposer = DecomposeNode(llm=utils_model)
-retriever = RetrievalNode(config=config)
+orchestrator = OrchestratorNode(llm=utils_model)
+retriever = RetrievalNode()
+reranker = RerankNode()
 searcher = SearchNode()
 aggregator = AggregationNode()
-call_model = CallModelNode(model=model)
+call_model = CallModelNode(model=main_model)
+
+# --- Routing and Parallel Logic ---
+def route_after_intent(state: State) -> str:
+    """Routes to the correct path based on the detected intent."""
+    if state.get("do_retrieval"):
+        # If retrieval is needed, we ALWAYS go down the decomposition path first
+        # to ensure tasks are planned correctly.
+        return "decompose"
+    if state.get("do_search"):
+        # If ONLY search is needed, we can go straight to the search node.
+        return "search_only"
+
+    # If neither is needed, it's a simple conversational turn.
+    return "direct_to_llm"
+
+def route_after_orchestration(state: State) -> str:
+    """Decides whether to run search in parallel with retrieval."""
+    if state.get("do_search"):
+        # This check happens AFTER planning, ensuring we only do parallel
+        # search if the intent was also to retrieve.
+        return "parallel_evidence"
+    else:
+        return "retrieve_only"
+
 
 def build_workflow():
-
     workflow = StateGraph(State)
-    workflow.add_node("summarizer", summarizer.run)
-    # workflow.add_node("rewrite_query", rewriter.invoke)
+
+    # Add all nodes to the graph (Summarizer is removed from this core graph)
+    workflow.add_node("intent_detector", intent_detector.invoke)
     workflow.add_node("decompose", decomposer.invoke)
-    workflow.add_node("retrieve", retriever.invoke)
-    workflow.add_node("search", searcher.invoke)
+    workflow.add_node("orchestrate", orchestrator.invoke)
+
+    def parallel_node(state):
+        # Using RunnableParallel to execute retrieval and search concurrently
+        parallel_evidence_gatherer = RunnableParallel(retrieval=retriever.invoke, search=searcher.invoke)
+        results = parallel_evidence_gatherer.invoke(state)
+        # The retrieval node must be updated to return a dict with 'fused_docs'
+        return {
+            "fused_docs": results.get('retrieval', {}).get('fused_docs', []),
+            "web_search_results": results.get('search', {}).get('web_search_results', '')
+        }
+    workflow.add_node("parallel_evidence", parallel_node)
+
+    workflow.add_node("retrieve_only", retriever.invoke) # This node now outputs to 'fused_docs'
+    workflow.add_node("search_only", searcher.invoke)
+    workflow.add_node("rerank", reranker.invoke)
     workflow.add_node("aggregate", aggregator.invoke)
     workflow.add_node("call_model", call_model.invoke)
 
+    # --- Graph Wiring ---
+    workflow.set_entry_point("intent_detector")
 
+    # 1. Routing from intent detection
     workflow.add_conditional_edges(
-        START,
-        summary_router,
-        {
-            "summarize": "summarizer",
-            "continue": "aggregate",
-        },
+        "intent_detector",
+        route_after_intent,
+        {"decompose": "decompose", "search_only": "search_only", "direct_to_llm": "call_model"}
     )
-    workflow.add_conditional_edges(
-        START,
-        query_router.invoke,
-        {
-            "informational": "decompose",
-            "conversational": "call_model",
-        },
-    )
-    workflow.add_conditional_edges(
-        START,
-        search_router,
-        {
-            "yes": "search",
-            "no": "aggregate",
-        },
-    )
-    workflow.add_edge("decompose", "retrieve")
-    workflow.add_edge("summarizer", "aggregate")
-    workflow.add_edge("retrieve", "aggregate")
-    workflow.add_edge("search", "aggregate")
+    # 2. Retrieval Path
+    workflow.add_edge("decompose", "orchestrate")
+    workflow.add_conditional_edges("orchestrate", route_after_orchestration, {
+        "parallel_evidence": "parallel_evidence", "retrieve_only": "retrieve_only"
+    })
+    workflow.add_edge("parallel_evidence", "rerank")
+    workflow.add_edge("retrieve_only", "rerank")
+    workflow.add_edge("rerank", "aggregate")
+    # 3. Search-Only Path
+    workflow.add_edge("search_only", "aggregate")
+    # 4. Aggregation to Final Call
     workflow.add_edge("aggregate", "call_model")
+
     workflow.add_edge("call_model", END)
 
     graph = workflow.compile(checkpointer=checkpointer)
-    
-    # try:
-    #     png_bytes = graph.get_graph().draw_mermaid_png()
-    #     output_file_path = r"D:\Projects\AbundenceAISuite\workflow_diagram.png"
+    try:
+        png_bytes = graph.get_graph().draw_mermaid_png()
+        output_file_path = r"D:\Projects\AbundenceAISuite\workflow_diagram.png"
 
-    #     with open(output_file_path, "wb") as f:
-    #         f.write(png_bytes)
+        with open(output_file_path, "wb") as f:
+            f.write(png_bytes)
         
-    #     print(f"✅ Graph diagram successfully saved to: {output_file_path}")
-    # except Exception:
-    #     pass
+        print(f"✅ Graph diagram successfully saved to: {output_file_path}")
+    except Exception as e:
+        print(f"⚠️  Could not generate workflow diagram: {e}")
     return graph

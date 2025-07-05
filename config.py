@@ -3,11 +3,12 @@ USER_COLLECTION = "user_attachments"
 ADMIN_CHROMA_PATH = "./chroma_db/admin"
 ADMIN_COLLECTION = "admin_memory"
 IMAGE_STORE_PATH = "extracted_images"
+CACHE_DIR = "./bm25_cache"
 VECTOR_SEARCH_K = 20
 CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 256
 
-MODEL_ID = "llama3-8b-8192"
+MODEL_ID = "qwen/qwen3-32b"
 UTILS_MODEL_ID = "llama3-8b-8192"
 
 EMBEDDING_MODEL_ID = "BAAI/bge-m3"
