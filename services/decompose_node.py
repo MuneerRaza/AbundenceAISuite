@@ -19,37 +19,38 @@ class DecomposeNode:
     def __init__(self, llm: BaseChatModel):
         self.structured_llm = llm.with_structured_output(DecomposedTasks)
         
-        # --- NEW, MORE POWERFUL PROMPT ---
         self.prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    "You are an expert at analyzing user queries and breaking them down into one or more clear, self-contained, and answerable questions. Your goal is to create the **minimum number of tasks** required to fully cover the user's intent.\n\n"
-                    "Respond with only the classification in this JSON format.\n\n"
-                    "## Your Process:\n"
-                    "1. **Analyze History:** First, review the 'CONVERSATION HISTORY' (if available) to understand context and resolve any pronouns or ambiguities in the 'USER QUERY'. Do not assume or invent information.\n"
-                    "2. **Identify Core Tasks:** Determine the fundamental questions the user is asking.\n"
-                    "3. **Decomposition Rule:** Decompose only if the query contains multiple distinct questions that must be addressed separately. If it's a single, cohesive question, rewrite it clearly as one self-contained task.\n\n"
-                    "## EXAMPLE 1 (Decomposition):\n"
-                    "CONVERSATION HISTORY: Human: I'm planning a trip.\n"
-                    "USER QUERY: 'Tell me about Paris and also the top 3 restaurants in Rome.'\n"
-                    "tasks: ['What are some key facts about Paris for a tourist?', 'What are the top 3 rated restaurants in Rome?']\n\n"
-                    "## EXAMPLE 2 (No Decomposition; Rewriting Needed):\n"
-                    "CONVERSATION HISTORY: Human: What is the capital of France?\nAI: Paris is the capital of France.\n"
-                    "USER QUERY: 'What about its population?'\n"
-                    "tasks: ['What is the population of Paris, France?']\n\n"
-                    "## EXAMPLE 3 (No Decomposition; Simple Query):\n"
-                    "CONVERSATION HISTORY: [] (empty)\n"
-                    "USER QUERY: 'How does a VAE work?'\n"
-                    "tasks: ['How does a Variational Autoencoder (VAE) work?']"
-
-                ),
-                (
-                    "human",
-                    "CONVERSATION HISTORY:\n{history}\n\nUSER QUERY: '{query}'",
-                ),
-            ]
-        )
+        [
+            (
+                "system",
+                "You are a task analysis engine. Your sole function is to identify the user's primary question(s). You MUST ignore any instructions on HOW to answer the question.\n\n"
+                "## Core Logic:\n"
+                "1.  **Identify the Core Question:** Extract what the user wants to know.\n"
+                "2.  **Discard Instructions:** Phrases like 'see the pdf', 'in the file', 'use the document', or 'search the web' are instructions for another AI and MUST be ignored by you.\n"
+                "3.  **Produce a Clean Task List:** Your output is a list of self-contained questions.\n\n"
+                "--- EXAMPLES --- \n\n"
+                "## EXAMPLE 1: Query with an Instruction (SINGLE TASK)\n"
+                "This is the most important rule. If the user gives an instruction on where to look, it is NOT a separate task.\n"
+                "USER QUERY: 'What is Cognifoot AI, see the pdf.'\n"
+                "tasks: ['What is Cognifoot AI?']\n\n"
+                "USER QUERY: 'Summarize the project status from the attached report.'\n"
+                "tasks: ['What is the summary of the project status?']\n\n"
+                "## EXAMPLE 2: Query with Multiple, DISTINCT Questions (MULTI-TASK)\n"
+                "Decompose only when the user asks for fundamentally different pieces of information that require separate actions.\n"
+                "USER QUERY: 'What is the capital of France, and what is its main export?'\n"
+                "tasks: ['What is the capital of France?', 'What is the main export of France?']\n\n"
+                "## EXAMPLE 3: Query needing context from history (REWRITE TASK)\n"
+                "Use the history to clarify pronouns.\n"
+                "CONVERSATION HISTORY: Human: I'm looking at the Q4 financial report.\n"
+                "USER QUERY: 'What was the total revenue?'\n"
+                "tasks: ['What was the total revenue listed in the Q4 financial report?']"
+            ),
+            (
+                "human",
+                "CONVERSATION HISTORY:\n{history}\n\nUSER QUERY: '{query}'",
+            ),
+        ]
+    )
 
     def invoke(self, state: State):
         recent_messages = state.get("recent_messages", [])
@@ -79,7 +80,6 @@ class DecomposeNode:
             return {"tasks": [last_user_message]}
         
 if __name__ == "__main__":
-    # Example usage
     from langchain_groq import ChatGroq
 
     llm = ChatGroq(model="llama3-8b-8192")

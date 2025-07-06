@@ -58,6 +58,7 @@ class SummarizerNode:
         messages_to_delete = [
             RemoveMessage(id=m.id) for m in messages_to_summarize if hasattr(m, 'id') and m.id is not None
         ]
+        print(f"SummarizerNode: {new_summary}")
 
         return {
             "conversation_summary": new_summary,

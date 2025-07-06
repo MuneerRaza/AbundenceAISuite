@@ -4,7 +4,6 @@ langgraph-checkpoint-mongodb
 pymongo 
 langchain-community
 langchain-huggingface
-langchain-chroma
 langchain-groq
 langchain-tavily
 python-dotenv
@@ -13,7 +12,8 @@ einops
 langchain-nvidia-ai-endpoints
 unstructured[all-docs]
 langchain-unstructured
-spacy
 fastapi
 uvicorn[standard]
 rank_bm25
+weaviate-client
+langchain-weaviate

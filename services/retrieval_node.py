@@ -6,12 +6,11 @@ from langchain.schema import Document
 from config import THREAD_ID
 
 class RetrievalNode:
-    def _retrieve_for_task(self, task_plan, thread_id: str) -> List[Document]:
-        """Helper function to retrieve documents for a single task."""
-        task = task_plan.task
-        strategy = task_plan.retrieval_strategy
-        print(f"---STARTING RETRIEVAL FOR TASK: '{task}' (Strategy: {strategy})---")
-        retrieved_docs = get_retrieved_docs(query=task, thread_id=thread_id, strategy=strategy)
+    def _retrieve_for_task(self, task: str, thread_id: str) -> List[Document]:
+        """Helper function to retrieve documents for a single task using a hybrid strategy."""
+        print(f"---STARTING RETRIEVAL FOR TASK: '{task}'---")
+        # The 'strategy' is now hardcoded to 'hybrid' for simplicity and effectiveness
+        retrieved_docs = get_retrieved_docs(query=task, thread_id=thread_id, strategy="hybrid")
         # Add task info to metadata for the aggregator
         for doc in retrieved_docs:
             doc.metadata["source_task"] = task
@@ -19,23 +18,24 @@ class RetrievalNode:
 
     def invoke(self, state: State) -> Dict[str, List[Document]]:
         """
-        Retrieves documents for each task in parallel based on the orchestrated plan.
+        Retrieves documents for each task in parallel.
         """
         do_retrieval = state.get("do_retrieval", False)
         if not do_retrieval:
-            print("Skipping retrieval as per intent detection.")
-            return {"retrieved_docs": []}
+            print("Skipping retrieval as per graph routing.")
+            return {"fused_docs": []}
 
-        task_plans = state.get("task_plans", [])
+        tasks = state.get("tasks", [])
         
-        if not task_plans or not THREAD_ID:
-            return {"retrieved_docs": []}
+        if not tasks or not THREAD_ID:
+            return {"fused_docs": []}
 
-        print(f"---RETRIEVING IN PARALLEL FOR {len(task_plans)} TASKS---")
+        print(f"---RETRIEVING IN PARALLEL FOR {len(tasks)} TASKS---")
         all_docs = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
+            # The node now uses the list of task strings directly
             future_to_task = {
-                executor.submit(self._retrieve_for_task, plan, THREAD_ID): plan.task for plan in task_plans
+                executor.submit(self._retrieve_for_task, task, THREAD_ID): task for task in tasks
             }
             for future in concurrent.futures.as_completed(future_to_task):
                 try:

@@ -32,7 +32,7 @@ def _ingest_single_file(meta: dict) -> int:
         print(f"-> Processing {meta['path']}...")
         elements = partition(filename=meta["path"], strategy="fast")
         chunks_as_elements = chunk_by_title(
-            elements, max_characters=1500, combine_text_under_n_chars=250
+            elements, max_characters=1500, combine_text_under_n_chars=256
         )
         
         docs = []
@@ -210,6 +210,27 @@ def delete_by_hash(file_hash: str):
     except Exception as e:
         print(f"Error deleting documents for file_hash '{file_hash}': {e}")
 
+def delete_by_path(path: str):
+    """Deletes all documents associated with a specific file path."""
+    try:
+        chroma._collection.delete(where={"path": path})
+        print(f"✅ Successfully deleted all documents for path: '{path}'")
+    except Exception as e:
+        print(f"Error deleting documents for path '{path}': {e}")
+
+def empty_bm25_cache(thread_id: str):
+    """
+    Deletes the cached BM25 index for a specific thread_id.
+    """
+    cache_dir = CACHE_DIR
+    cache_path = os.path.join(cache_dir, f"{thread_id}.pkl")
+    
+    if os.path.exists(cache_path):
+        os.remove(cache_path)
+        print(f"✅ Successfully deleted BM25 cache for thread_id: '{thread_id}'")
+    else:
+        print(f"No BM25 cache found for thread_id: '{thread_id}'")
+
 if __name__ == "__main__":
     import time
     
@@ -234,7 +255,7 @@ if __name__ == "__main__":
     # The retrieval function was renamed to get_retrieved_docs
     docs = get_retrieved_docs(query, thread_id)
     for doc in docs:
-        print(f"Retrieved doc: {doc.page_content[:100]}... (Metadata: {doc.metadata})")
+        print(f"Retrieved doc: {doc.page_content})")
     print(f"Retrieved {len(docs)} documents.")
     retrieve_end_time = time.time()
     print(f"✅ Retrieval took: {retrieve_end_time - retrieve_start_time:.2f} seconds.")

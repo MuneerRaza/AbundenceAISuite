@@ -1,3 +1,4 @@
+import threading
 from workflow.graph import build_workflow
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -79,15 +80,15 @@ def run_workflow():
         print(f"Bot: {final_message}")
 
         # # --- BACKGROUND TASK LOGIC ---
-        # # After responding, check if summarization is needed.
-        # current_state = checkpointer.get(config)
-        # if current_state and len(current_state.get("values", {}).get("recent_messages", [])) > SUMMARY_THRESHOLD:
-        #     # Run summarization in a separate thread to not block the next input prompt
-        #     summary_thread = threading.Thread(
-        #         target=run_background_summarization,
-        #         args=(config,)
-        #     )
-        #     summary_thread.start()
+        # After responding, check if summarization is needed.
+        current_state = checkpointer.get(config)
+        if current_state and len(current_state.get("values", {}).get("recent_messages", [])) > SUMMARY_THRESHOLD:
+            # Run summarization in a separate thread to not block the next input prompt
+            summary_thread = threading.Thread(
+                target=run_background_summarization,
+                args=(config,)
+            )
+            summary_thread.start()
 
 
 if __name__ == "__main__":
