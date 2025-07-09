@@ -15,5 +15,8 @@ langchain-unstructured
 fastapi
 uvicorn[standard]
 rank_bm25
-weaviate-client
-langchain-weaviate
+qdrant-client
+fastembed
+langchain-qdrant
+PyPDF2
+langchain-deepinfra 

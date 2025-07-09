@@ -1,22 +1,34 @@
+# Qdrant Configuration
+QDRANT_HOST = "localhost"
+QDRANT_PORT = 6333
+QDRANT_COLLECTION = "user_attachments"
+
+# Legacy ChromaDB paths (for migration if needed)
 USER_CHROMA_PATH = "./chroma_db/user"
 USER_COLLECTION = "user_attachments"
 ADMIN_CHROMA_PATH = "./chroma_db/admin"
 ADMIN_COLLECTION = "admin_memory"
-IMAGE_STORE_PATH = "extracted_images"
-CACHE_DIR = "./bm25_cache"
+
+# Cache and search configuration
+CACHE_DIR = "./cache"
 VECTOR_SEARCH_K = 20
 CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 256
 RERANK_THRESHOLD = 0.1
 
+# Model configuration
 MODEL_ID = "llama3-8b-8192"
 UTILS_MODEL_ID = "llama3-8b-8192"
 
-EMBEDDING_MODEL_ID = "BAAI/bge-m3"
-# EMBEDDING_MODEL_ID = "nomic-ai/nomic-embed-text-v1.5"
-# MODEL_KWARGS = {'device': 'cpu', 'trust_remote_code': True}
-# ENCODE_KWARGS = {"normalize_embeddings": True}
+# Embedding model configuration
+USE_NVIDIA_EMBEDDINGS = False  # Set to True for NVIDIA API, False for FastEmbed
+EMBEDDING_MODEL_ID = "BAAI/bge-small-en-v1.5"  # FastEmbed model from config
+NVIDIA_MODEL_ID = "baai/bge-m3"  # NVIDIA model
 
+# Reranking configuration
+RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-12-v2"  # Fast, high-quality ONNX model
+
+# ... existing code ...
 
 SUMMARY_THRESHOLD = 8
 MESSAGES_TO_RETAIN = 4

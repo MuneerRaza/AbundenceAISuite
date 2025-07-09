@@ -9,8 +9,8 @@ class RetrievalNode:
     def _retrieve_for_task(self, task: str, thread_id: str) -> List[Document]:
         """Helper function to retrieve documents for a single task using a hybrid strategy."""
         print(f"---STARTING RETRIEVAL FOR TASK: '{task}'---")
-        # The 'strategy' is now hardcoded to 'hybrid' for simplicity and effectiveness
-        retrieved_docs = get_retrieved_docs(query=task, thread_id=thread_id, strategy="hybrid")
+        # Using vector search for optimal performance
+        retrieved_docs = get_retrieved_docs(query=task, thread_id=thread_id, strategy="vector_search")
         # Add task info to metadata for the aggregator
         for doc in retrieved_docs:
             doc.metadata["source_task"] = task

@@ -3,5 +3,5 @@ __pycache__/
 .venv/
 .env
 *.env
-chroma_db/
-bm25_cache/
+cache/
+qdrant/
