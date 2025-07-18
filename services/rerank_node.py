@@ -2,14 +2,12 @@ import math
 from typing import List, Dict
 from models.state import State
 from langchain.schema import Document
-from fastembed.rerank.cross_encoder import TextCrossEncoder
-from config import RERANK_THRESHOLD, RERANK_MODEL
+from config import RERANK_THRESHOLD
+from . import shared_reranker
 
 class RerankNode:
     def __init__(self):
-        # Initialize FastEmbed cross-encoder reranker - much faster than sentence-transformers
-        self.reranker = TextCrossEncoder(model_name=RERANK_MODEL)
-        print(f"✅ Initialized RerankNode with FastEmbed CrossEncoder ({RERANK_MODEL})")
+        self.reranker = shared_reranker
 
     def _calculate_top_k(self, num_tasks: int, num_retrieved: int) -> int:
         """Dynamic top-k calculation based on number of tasks and retrieved documents."""

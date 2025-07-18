@@ -1,17 +1,15 @@
 import concurrent.futures
 from typing import Dict, List
 from models.state import State
-from services.vectordb import get_retrieved_docs
+from vector_db.vector_service import VectorService
 from langchain.schema import Document
-from config import THREAD_ID
+from config import USER_ID, THREAD_ID
 
 class RetrievalNode:
-    def _retrieve_for_task(self, task: str, thread_id: str) -> List[Document]:
+    def _retrieve_for_task(self, task: str, user_id: str, thread_id: str) -> List[Document]:
         """Helper function to retrieve documents for a single task using a hybrid strategy."""
         print(f"---STARTING RETRIEVAL FOR TASK: '{task}'---")
-        # Using vector search for optimal performance
-        retrieved_docs = get_retrieved_docs(query=task, thread_id=thread_id, strategy="vector_search")
-        # Add task info to metadata for the aggregator
+        retrieved_docs = VectorService.retrieve_documents(query=task, user_id=user_id, thread_id=thread_id)
         for doc in retrieved_docs:
             doc.metadata["source_task"] = task
         return retrieved_docs
@@ -35,7 +33,7 @@ class RetrievalNode:
         with concurrent.futures.ThreadPoolExecutor() as executor:
             # The node now uses the list of task strings directly
             future_to_task = {
-                executor.submit(self._retrieve_for_task, task, THREAD_ID): task for task in tasks
+                executor.submit(self._retrieve_for_task, task, USER_ID,THREAD_ID): task for task in tasks
             }
             for future in concurrent.futures.as_completed(future_to_task):
                 try:

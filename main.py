@@ -10,6 +10,7 @@ from models.state import State
 import os
 
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
+os.environ['FASTEMBED_CACHE_PATH'] = 'cache'
 
 # --- Initialize Summarizer separately for background tasks ---
 utils_model = ChatGroq(model=UTILS_MODEL_ID)
@@ -32,7 +33,6 @@ def run_background_summarization(config):
                 "do_retrieval": thread_state.get("do_retrieval", False),
                 "do_search": thread_state.get("do_search", False),
                 "tasks": thread_state.get("tasks", []),
-                "task_plans": thread_state.get("task_plans", []),
                 "fused_docs": thread_state.get("fused_docs", []),
                 "web_search_results": thread_state.get("web_search_results", ""),
                 "retrieved_docs": thread_state.get("retrieved_docs", []),
@@ -72,18 +72,12 @@ def run_workflow():
             "do_search": use_internet,
         }
 
-        # --- This call is now non-blocking for summarization ---
         response = graph.invoke(initial_state, config=config)
         final_message = response['recent_messages'][-1].content
-
-        # --- Immediately print the response to the user ---
         print(f"Bot: {final_message}")
 
-        # # --- BACKGROUND TASK LOGIC ---
-        # After responding, check if summarization is needed.
         current_state = checkpointer.get(config)
         if current_state and len(current_state.get("values", {}).get("recent_messages", [])) > SUMMARY_THRESHOLD:
-            # Run summarization in a separate thread to not block the next input prompt
             summary_thread = threading.Thread(
                 target=run_background_summarization,
                 args=(config,)

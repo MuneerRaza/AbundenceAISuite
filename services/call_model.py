@@ -26,7 +26,6 @@ class CallModelNode:
         self.model = model
     
     def invoke(self, state: State):
-        prompt_with_context = state.get("prompt_messages", [])
-        print(f"CallModelNode: Using prompt messages: {prompt_with_context}")
+        prompt_with_context = state.get("prompt_messages", [])        
         response = self.model.invoke([SystemMessage(content=get_prompt_template(state))] + prompt_with_context)
         return {"recent_messages": [response]}

@@ -9,14 +9,11 @@ langchain-tavily
 python-dotenv
 pydantic
 einops
-langchain-nvidia-ai-endpoints
 unstructured[all-docs]
 langchain-unstructured
 fastapi
 uvicorn[standard]
-rank_bm25
 qdrant-client
 fastembed
 langchain-qdrant
-PyPDF2
 langchain-deepinfra 
