@@ -29,18 +29,22 @@ call_model = CallModelNode(model=main_model)
 def route_after_intent_detection(state: State) -> str:
     do_retrieval = state.get("do_retrieval")
     do_search = state.get("do_search")
-
-    if do_retrieval:
+    
+    if do_retrieval or do_search:
         return "decompose"
-    if do_search:
-        return "search_only"
+    
     return "direct_to_llm"
 
 def route_after_decomposition(state: State) -> str:
+    do_retrieval = state.get("do_retrieval")
     do_search = state.get("do_search")
-    if do_search:
+    if do_retrieval and do_search:
         return "parallel_evidence"
-    return "retrieve_only"
+    if do_retrieval:
+        return "retrieve_only"
+    if do_search:
+        return "search_only"
+    return "direct_to_llm"
 
 
 def build_workflow():
@@ -54,7 +58,7 @@ def build_workflow():
         results = parallel_evidence_gatherer.invoke(state)
         return {
             "retrieved_docs": results.get('retrieval', {}).get('retrieved_docs', []),
-            "web_search_results": results.get('search', {}).get('web_search_results', '')
+            "web_search_results": results.get('search', {}).get('web_search_results', [])
         }
     workflow.add_node("parallel_evidence", parallel_node)
 
@@ -71,7 +75,6 @@ def build_workflow():
         route_after_intent_detection,
         {
             "decompose": "decompose",
-            "search_only": "search_only",
             "direct_to_llm": "aggregate"
         }
     )
@@ -81,6 +84,8 @@ def build_workflow():
         route_after_decomposition,
         {
             "retrieve_only": "retrieve_only",
+            "search_only": "search_only",
+            "direct_to_llm": "aggregate",
             "parallel_evidence": "parallel_evidence"
         }
     )

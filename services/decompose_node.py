@@ -100,7 +100,7 @@ if __name__ == "__main__":
         "do_retrieval": False,
         "do_search": False,
         "tasks": [],
-        "web_search_results": "",
+        "web_search_results": [],
         "retrieved_docs": [],
         "final_context": "",
     }

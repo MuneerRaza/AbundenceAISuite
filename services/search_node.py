@@ -1,4 +1,5 @@
 import re
+from typing import Dict, List
 from models.state import State
 from langchain_tavily import TavilyExtract, TavilySearch
 from dotenv import load_dotenv
@@ -16,11 +17,16 @@ class SearchNode:
         # self.url_pattern = r'\b((?:https?://|www\.)[^\s,<>"]+)'
 
     def invoke(self, state: State):
-        user_query = state.get("user_query", "")
-        if not user_query:
-            return {"web_search_results": ""}
+        tasks = state.get("tasks", [])
+        if not tasks:
+            return {"web_search_results": []}
 
-        return self._content_search(user_query)
+        web_search_results: List[Dict] = []
+        for task in tasks:
+            web_search_results.append(self._content_search(task))
+        
+        return { "web_search_results": web_search_results }
+
 
     def _content_search(self, query: str) -> dict:
         """Perform a content search and return results."""
@@ -29,17 +35,19 @@ class SearchNode:
             results = self.content_search.invoke(query)
             formatted_results = self._format_results(results.get("results", []))
             if formatted_results:
-                return {"web_search_results": formatted_results}
-            return {"web_search_results": "No relevant web search results found."}
+                return formatted_results
+            return {'URL': 'N/A', 'content': 'No content found.'}
         except Exception as e:
             print(f"Error during Tavily search: {e}")
-            return {"web_search_results": "Error performing web search."}
+            return {'URL': 'N/A', 'content': 'Search failed.'}
 
-    def _format_results(self, results: list) -> str:
+    def _format_results(self, results: list) -> dict:
         """Format the results into a readable string."""
-        formatted_results = ""
+        formatted_results = {}
         for result in results:
             url = result.get("url", "")
-            content = result.get("content", "")
-            formatted_results += f"\n\nURL: {url}\nSearch Result: {content}\n\n"
-        return formatted_results.strip()
+            content = result.get("content", "").strip()
+            if url and content:
+                formatted_results['URL'] = url
+                formatted_results['content'] = content
+        return formatted_results if formatted_results else {}

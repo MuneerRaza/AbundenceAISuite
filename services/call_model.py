@@ -39,4 +39,4 @@ class CallModelNode:
             HumanMessage(content=f"User Query: {user_query}\n\n{final_context.strip()}")
         )
         response = self.model.invoke([SystemMessage(content=get_prompt_template(state))] + recent_messages)
-        return {"recent_messages": [response], "tasks": [], "web_search_results": "", "retrieved_docs": []}
+        return {"recent_messages": [response], "tasks": [], "web_search_results": [], "retrieved_docs": []}

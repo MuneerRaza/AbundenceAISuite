@@ -25,7 +25,9 @@ class AggregationNode:
                 final_context += "\n\n".join(contents)
 
         if web_search_results:
-            final_context += f"\n\n---EVIDENCE FROM WEB SEARCH---\n{web_search_results}\n"
+            final_context += f"\n\n---EVIDENCE FROM WEB SEARCH---\n"
+            for result in web_search_results:
+                final_context += f"\n{result.get('URL', 'N/A')}\nSearch Result: {result.get('content', 'No content available')}\n"
 
         
         
