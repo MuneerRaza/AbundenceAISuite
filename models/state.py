@@ -1,9 +1,9 @@
-from typing import TypedDict, List, Optional, Any
-from langchain_core.messages import BaseMessage
+from typing import Annotated, TypedDict, List
 from langchain.schema import Document
+from langgraph.graph.message import add_messages
 
 class State(TypedDict):
-    recent_messages: List[BaseMessage]
+    recent_messages: Annotated[list, add_messages]
     user_query: str
     conversation_summary: str
     
@@ -12,10 +12,6 @@ class State(TypedDict):
     
     tasks: List[str]
     
-    fused_docs: List[Document]
     retrieved_docs: List[Document]
-    
     web_search_results: str
-    
-    prompt_messages: List[BaseMessage]
-    final_context: Optional[str]
+    final_context: str

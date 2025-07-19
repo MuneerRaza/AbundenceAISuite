@@ -30,6 +30,7 @@ def main():
     
     # Example: Index a PDF document
     pdf_files = [
+        r"C:\Users\MuneerRaza\Downloads\109 Visa Interview Questions.docx", 
         r"C:\Users\MuneerRaza\Downloads\CognifootAI_FYP_report_final.pdf"
     ]
     
@@ -43,14 +44,14 @@ def main():
         logging.info(f"Indexing result: {result}")
         
         # Search for documents
-        query = "Supervisor"
+        query = "what should I tell when they ask that why I have low grade in my last degree?"
         logging.info(f"Searching for: {query}")
         search_results = indexer.search(query, user_id, thread_id, top_k=5)
         
         logging.info(f"Found {len(search_results)} results:")
         for i, doc in enumerate(search_results, 1):
             print(f"\n--- Result {i} ---")
-            print(f"Content: {doc.page_content[:200]}...")
+            print(f"Content: {doc.page_content}")
             print(f"Source: {doc.metadata.get('source_file', 'Unknown')}")
             print(f"Chunk: {doc.metadata.get('chunk_index', 'Unknown')}")
 

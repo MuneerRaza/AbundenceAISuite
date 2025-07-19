@@ -26,6 +26,17 @@ class CallModelNode:
         self.model = model
     
     def invoke(self, state: State):
-        prompt_with_context = state.get("prompt_messages", [])        
-        response = self.model.invoke([SystemMessage(content=get_prompt_template(state))] + prompt_with_context)
-        return {"recent_messages": [response]}
+        user_query = state.get("user_query", "")
+        final_context = state.get("final_context", "")
+        recent_messages = state.get("recent_messages", [])
+        # remove last message if it's a user query
+        if recent_messages and isinstance(recent_messages[-1], HumanMessage):
+            recent_messages = recent_messages[:-1]
+            
+        if not user_query:
+            return {"recent_messages": [HumanMessage(content="No user query provided.")]}
+        recent_messages.append(
+            HumanMessage(content=f"User Query: {user_query}\n\n{final_context.strip()}")
+        )
+        response = self.model.invoke([SystemMessage(content=get_prompt_template(state))] + recent_messages)
+        return {"recent_messages": [response], "tasks": [], "web_search_results": "", "retrieved_docs": []}

@@ -12,7 +12,7 @@ class RetrievalNode:
         retrieved_docs = VectorService.retrieve_documents(query=task, user_id=user_id, thread_id=thread_id)
         for doc in retrieved_docs:
             doc.metadata["source_task"] = task
-        return retrieved_docs
+        return retrieved_docs[:5]
 
     def invoke(self, state: State) -> Dict[str, List[Document]]:
         """
@@ -21,15 +21,15 @@ class RetrievalNode:
         do_retrieval = state.get("do_retrieval", False)
         if not do_retrieval:
             print("Skipping retrieval as per graph routing.")
-            return {"fused_docs": []}
+            return {"retrieved_docs": []}
 
         tasks = state.get("tasks", [])
         
         if not tasks or not THREAD_ID:
-            return {"fused_docs": []}
+            return {"retrieved_docs": []}
 
         print(f"---RETRIEVING IN PARALLEL FOR {len(tasks)} TASKS---")
-        all_docs = []
+        all_docs: List[Document] = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
             # The node now uses the list of task strings directly
             future_to_task = {
@@ -43,5 +43,5 @@ class RetrievalNode:
                     print(f"Task '{task_name}' failed during retrieval: {e}")
 
         unique_docs = {doc.page_content: doc for doc in all_docs}.values()
-        print(f"---AGGREGATED {len(unique_docs)} UNIQUE DOCUMENTS FROM ALL TASKS---")
-        return {"fused_docs": list(unique_docs)}
+        print(f"---RETRIEVED {len(unique_docs)} UNIQUE DOCUMENTS FROM ALL TASKS---")
+        return {"retrieved_docs": list(unique_docs)}

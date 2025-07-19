@@ -5,8 +5,8 @@ from langchain_groq import ChatGroq
 from services.intent_detection_node import IntentDetectionNode
 from services.decompose_node import DecomposeNode
 from services.retrieval_node import RetrievalNode
-from services.rerank_node import RerankNode
 from services.search_node import SearchNode
+from services.evaluater_node import EvaluatorNode
 from services.aggregation_node import AggregationNode
 from services.call_model import CallModelNode
 
@@ -21,7 +21,7 @@ main_model = ChatGroq(model=MODEL_ID)
 intent_detector = IntentDetectionNode()
 decomposer = DecomposeNode(llm=utils_model)
 retriever = RetrievalNode()
-reranker = RerankNode()
+evaluator = EvaluatorNode(llm=utils_model)
 searcher = SearchNode()
 aggregator = AggregationNode()
 call_model = CallModelNode(model=main_model)
@@ -53,14 +53,14 @@ def build_workflow():
         parallel_evidence_gatherer = RunnableParallel(retrieval=retriever.invoke, search=searcher.invoke)
         results = parallel_evidence_gatherer.invoke(state)
         return {
-            "fused_docs": results.get('retrieval', {}).get('fused_docs', []),
+            "retrieved_docs": results.get('retrieval', {}).get('retrieved_docs', []),
             "web_search_results": results.get('search', {}).get('web_search_results', '')
         }
     workflow.add_node("parallel_evidence", parallel_node)
 
     workflow.add_node("retrieve_only", retriever.invoke)
     workflow.add_node("search_only", searcher.invoke)
-    workflow.add_node("rerank", reranker.invoke)
+    workflow.add_node("evaluate", evaluator.invoke)
     workflow.add_node("aggregate", aggregator.invoke)
     workflow.add_node("call_model", call_model.invoke)
 
@@ -85,10 +85,10 @@ def build_workflow():
         }
     )
 
-    workflow.add_edge("parallel_evidence", "rerank")
-    workflow.add_edge("retrieve_only", "rerank")
+    workflow.add_edge("parallel_evidence", "evaluate")
+    workflow.add_edge("retrieve_only", "evaluate")
     workflow.add_edge("search_only", "aggregate")
-    workflow.add_edge("rerank", "aggregate")
+    workflow.add_edge("evaluate", "aggregate")
 
     workflow.add_edge("aggregate", "call_model")
     workflow.add_edge("call_model", END)

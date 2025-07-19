@@ -22,17 +22,6 @@ class SearchNode:
 
         return self._content_search(user_query)
 
-    # def _url_search(self, urls: list) -> dict:
-    #     print("---SEARCHING THE URLS---")
-    #     try:
-    #         results = self.url_search.invoke({"urls": urls})
-    #         print(f"Results: {results}")
-    #         formatted_results = self._format_results(results.get("results", []))
-    #         return {"web_search_results": formatted_results}
-    #     except Exception as e:
-    #         print(f"Error during Tavily URL extraction: {e}")
-    #         return {"web_search_results": "Error extracting URLs."}
-
     def _content_search(self, query: str) -> dict:
         """Perform a content search and return results."""
         print("---SEARCHING THE WEB---")

@@ -8,13 +8,16 @@ CACHE_DIR = "./cache"
 RERANK_THRESHOLD = 0.1
 
 # Model configuration
-MODEL_ID = "llama3-8b-8192"
+MODEL_ID = "llama-3.3-70b-versatile"
 UTILS_MODEL_ID = "llama3-8b-8192"
 
-# Embedding model configuration
-# EMBEDDING_MODEL_ID = "BAAI/bge-small-en-v1.5"
-EMBEDDING_MODEL_ID = "jinaai/jina-embeddings-v2-small-en"
-DEEPINFRA_MODEL_ID = "BAAI/bge-m3"
+# Embedding model configuration 
+# BAAI/bge-small-en-v1.5
+# BAAI/bge-m3
+# jinaai/jina-embeddings-v2-small-en
+# BAAI/bge-base-en-v1.5
+# jinaai/jina-embeddings-v2-base-en
+EMBEDDING_MODEL_ID = "BAAI/bge-base-en-v1.5"
 
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-12-v2"
 
@@ -44,13 +47,12 @@ PROMPT_CONTENT_ONLY = """
 **2. If the Context IS RELEVANT to the User Query:**
    - Your answer MUST be based **exclusively** on the information found in the `Context`.
    - State the source of your information (e.g., "According to the provided document...", "A web search shows...").
-   - If a `Source:` path or `URL:` is available and not marked "N/A", cite it at the end of the relevant sentence (e.g., "[Source: path/to/file.pdf]").
    - If the context is relevant but lacks the specific detail to answer fully, you MUST state that you cannot find the answer in the provided information.
 
 **3. If the Context IS NOT RELEVANT (or if the query is purely conversational, like a greeting, a creative request, or small talk):**
    - You MUST **IGNORE the `Context` section completely.**
    - Answer the user's query using your own general knowledge in a friendly, conversational manner.
-   - **Crucially:** Do not mention the context or the fact that you are ignoring it. Just respond naturally as if no context was ever retrieved.
+   - Mention the context does not provide relevant information for the query.
    
 **4. Do not make up any information or false claims.** """
 PROMPT_SUMMARY_AND_CONTENT = """
@@ -63,13 +65,12 @@ PROMPT_SUMMARY_AND_CONTENT = """
 **2. If the Context IS RELEVANT to the User Query:**
    - Your answer MUST be based **exclusively** on the information found in the `Context`.
    - State the source of your information (e.g., "According to the provided document...", "A web search shows...").
-   - If a `Source:` path or `URL:` is available, cite it at the end of the relevant sentence.
    - If the context is relevant but lacks the specific detail to answer fully, you MUST state that you cannot find the answer in the provided information.
 
 **3. If the Context IS NOT RELEVANT (or if the query is purely conversational, like a greeting, a creative request, or small talk):**
    - You MUST **IGNORE the `Context` section completely.**
    - Answer the user's query using your own general knowledge in a friendly, conversational manner.
-   - **Crucially:** Do not mention the context or the fact that you are ignoring it. Just respond naturally as if no context was ever retrieved.
+   - Mention the context does not provide relevant information for the query.
 
 **4. Do not make up any information or false claims.** **--- Conversation Flow ---**
 * Read the `CONVERSATION SUMMARY` to understand the dialogue's history.

@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Literal
 from langchain.schema import Document
 from langchain_qdrant import QdrantVectorStore
 
@@ -12,18 +12,19 @@ class DocumentIndexer:
                  qdrant_host: str = "localhost",
                  qdrant_port: int = 6333,
                  collection_name: str = "documents",
-                 similarity_threshold: float = 0.3,
+                 distance_threshold: float = 0.7,
+                 embedding_provider: Literal["fastembed", "deepinfra"] = "fastembed",
                  force_recreate: bool = False):
         
         logging.info("Initializing DocumentIndexer...")
         
         # Initialize components
-        self.embedding_manager = EmbeddingManager()
+        self.embedding_manager = EmbeddingManager(embedding_provider)
         self.document_processor = DocumentProcessor()
         self.qdrant_manager = QdrantManager(qdrant_host, qdrant_port, collection_name)
         
         self.collection_name = collection_name
-        self.similarity_threshold = similarity_threshold
+        self.distance_threshold = distance_threshold
         
         # Initialize vector store
         self._initialize_vector_store(force_recreate)
@@ -104,36 +105,41 @@ class DocumentIndexer:
             "user_id": user_id,
             "thread_id": thread_id
         }
-
-    def search(self, query: str, user_id: str, thread_id: str, top_k: int = 10) -> List[Document]:
-        """Search for similar documents using vector similarity."""
-        logging.info(f"Searching for: '{query[:50]}{'...' if len(query) > 50 else ''}' (top_k={top_k})")
         
+    def search(self, query: str, user_id: str, thread_id: str, top_k: int = 10) -> List[Document]:
+        logging.info(f"Searching for: '{query[:50]}{'...' if len(query) > 50 else ''}' (top_k={top_k})")
+
         try:
-            # Perform vector search
-            results = self.vector_store.similarity_search_with_score(
+            search_k = min(top_k * 2, 30)
+            results = self.vector_store.similarity_search_with_relevance_scores(
                 query=query,
-                k=top_k * 2  # Get more results for filtering
+                k=search_k
             )
-            
-            # Filter by similarity threshold and optionally by thread_id
+
             filtered_results = []
             for doc, score in results:
-                if score >= self.similarity_threshold:
-                    if user_id == doc.metadata.get('user_id') and thread_id == doc.metadata.get('thread_id'):
+                if score >= self.distance_threshold:  # e.g., 0.7
+                    doc_user_id = doc.metadata.get('user_id')
+                    doc_thread_id = doc.metadata.get('thread_id')
+
+                    if doc_user_id == user_id and doc_thread_id == thread_id:
                         filtered_results.append(doc)
+                        logging.debug(f"Added result - Relevance Score: {score:.3f}")
                         if len(filtered_results) >= top_k:
                             break
                     else:
-                        logging.debug(f"Unmatched metadata for doc: {doc.metadata}")
+                        logging.debug(f"Metadata mismatch - Expected: user={user_id}, thread={thread_id}, "
+                                    f"Got: user={doc_user_id}, thread={doc_thread_id}")
+                else:
+                    logging.debug(f"Filtered out - Relevance Score: {score:.3f} < threshold: {self.distance_threshold}")
 
-            logging.info(f"Search completed: {len(filtered_results)}/{len(results)} results")
+            logging.info(f"Search completed: {len(filtered_results)}/{len(results)} results passed filtering")
             return filtered_results
-            
+
         except Exception as e:
             logging.error(f"Search failed: {e}")
             return []
-
+        
     # def delete_all_collections(self):
     #     """Delete all collections in Qdrant."""
     #     start_time = time.time()

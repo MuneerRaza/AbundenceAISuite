@@ -16,4 +16,8 @@ uvicorn[standard]
 qdrant-client
 fastembed
 langchain-qdrant
-langchain-deepinfra 
+langchain-deepinfra
+python-docx
+openpyxl
+python-pptx
+pyyaml 

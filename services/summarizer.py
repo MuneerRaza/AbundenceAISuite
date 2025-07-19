@@ -42,9 +42,9 @@ class SummarizerNode:
         )
 
 
-    def run(self, state: State) -> dict:
-        summary = state.get("conversation_summary", "")
-        all_recent_messages = state.get("recent_messages", [])
+    def run(self, state) -> dict:
+        summary = state.values.get("conversation_summary", "")
+        all_recent_messages = state.values.get("recent_messages", [])
         messages_to_summarize = all_recent_messages[:-MESSAGES_TO_RETAIN]
 
         if not messages_to_summarize:

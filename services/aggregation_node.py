@@ -8,7 +8,6 @@ class AggregationNode:
         retrieved_docs = state.get("retrieved_docs", [])
         web_search_results = state.get("web_search_results", "")
         summary = state.get("conversation_summary", "")
-        user_query = state.get("user_query", "")
 
         final_context = ""
         if summary:
@@ -19,17 +18,15 @@ class AggregationNode:
             docs_by_task = defaultdict(list)
             for doc in retrieved_docs:
                 task = doc.metadata.get("source_task", "General")
-                docs_by_task[task].append(f"Source: {doc.metadata.get('path', 'N/A')}\nContent: {doc.page_content}")
+                docs_by_task[task].append(f"Source: {doc.metadata.get('source_file', 'N/A')}\nContent: {doc.page_content}")
             
             for task, contents in docs_by_task.items():
-                final_context += f"\nRelevant to sub-task: '{task}':\n"
+                final_context += f"\nTask:'{task}'\n"
                 final_context += "\n\n".join(contents)
 
         if web_search_results:
             final_context += f"\n\n---EVIDENCE FROM WEB SEARCH---\n{web_search_results}\n"
 
-        prompt_messages = [
-            HumanMessage(content=f"User Query: {user_query}\n\n{final_context.strip()}")
-        ]
         
-        return {"prompt_messages": prompt_messages}
+        
+        return {"final_context": final_context}

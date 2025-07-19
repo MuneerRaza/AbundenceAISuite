@@ -28,7 +28,8 @@ def get_global_indexer():
             qdrant_host=QDRANT_HOST,
             qdrant_port=QDRANT_PORT,
             collection_name=QDRANT_COLLECTION,
-            similarity_threshold=0.1,
+            distance_threshold=0.7,
+            embedding_provider="fastembed",  # fastembed or deepinfra
             force_recreate=False  # Set to True to recreate collection
         )
     return _global_indexer

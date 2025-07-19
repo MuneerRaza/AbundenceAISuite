@@ -12,37 +12,20 @@ import os
 os.environ["ANONYMIZED_TELEMETRY"] = "false"
 os.environ['FASTEMBED_CACHE_PATH'] = 'cache'
 
-# --- Initialize Summarizer separately for background tasks ---
 utils_model = ChatGroq(model=UTILS_MODEL_ID)
 summarizer = SummarizerNode(llm=utils_model)
 
-def run_background_summarization(config):
-    """Function to run the summarizer in a separate, non-blocking thread."""
+# MODIFICATION: The function now accepts the 'graph' object
+def run_background_summarization(config, graph):
     print("\n---Starting background summarization...---")
     try:
-        # We use the checkpointer to get the latest state of the thread
-        thread_state = checkpointer.get(config)
-        if thread_state:
-            thread_state = thread_state.get('channel_values', {})
-            if not thread_state:
-                return
-            state: State = {
-                "recent_messages": thread_state.get("recent_messages", []),
-                "user_query": thread_state.get("user_query", ""),
-                "conversation_summary": thread_state.get("conversation_summary", ""),
-                "do_retrieval": thread_state.get("do_retrieval", False),
-                "do_search": thread_state.get("do_search", False),
-                "tasks": thread_state.get("tasks", []),
-                "fused_docs": thread_state.get("fused_docs", []),
-                "web_search_results": thread_state.get("web_search_results", ""),
-                "retrieved_docs": thread_state.get("retrieved_docs", []),
-                "prompt_messages": thread_state.get("prompt_messages", []),
-            }
-            summarizer.run(state)
-
-            print("---Background summarization complete.---")
+        state = graph.get_state(config)
+        updates = summarizer.run(state)
+        if updates:
+            graph.update_state(config, updates)
+            print("---Background summarization complete and state updated.---")
         else:
-            print("---Could not find thread state for summarization.---")
+            print("---No summarization was needed.---")
     except Exception as e:
         print(f"---Error during background summarization: {e}---")
 
@@ -59,11 +42,11 @@ def run_workflow():
         if user_input.lower() == "d":
             delete_thread(THREAD_ID)
             print(f"Thread '{THREAD_ID}' deleted.")
-            break
+            continue
 
         # Simulate front-end booleans for intent
-        use_attachments = "pdf" in user_input.lower() or "document" in user_input.lower()
-        use_internet = "latest" in user_input.lower() or "search for" in user_input.lower()
+        use_attachments = "pdf" in user_input.lower()
+        use_internet = "search" in user_input.lower()
 
         initial_state = {
             "recent_messages": [HumanMessage(content=user_input)],
@@ -75,16 +58,15 @@ def run_workflow():
         response = graph.invoke(initial_state, config=config)
         final_message = response['recent_messages'][-1].content
         print(f"Bot: {final_message}")
+        current_state = graph.get_state(config)
 
-        current_state = checkpointer.get(config)
-        if current_state and len(current_state.get("values", {}).get("recent_messages", [])) > SUMMARY_THRESHOLD:
+        if len(current_state.values.get("recent_messages", [])) > SUMMARY_THRESHOLD:
             summary_thread = threading.Thread(
                 target=run_background_summarization,
-                args=(config,)
+                args=(config, graph)
             )
             summary_thread.start()
 
 
 if __name__ == "__main__":
     run_workflow()
-    # run_background_summarization(RunnableConfig(configurable={"thread_id": THREAD_ID}))
