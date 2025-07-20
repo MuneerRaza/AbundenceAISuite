@@ -19,7 +19,6 @@ def get_mongo_client():
             db_uri,
             maxPoolSize=10,  # Connection pool size
             minPoolSize=1,   # Minimum connections
-            maxIdleTimeMS=30000,  # Close idle connections after 30s
             serverSelectionTimeoutMS=5000,  # 5s timeout for server selection
             connectTimeoutMS=10000,  # 10s timeout for connection
             socketTimeoutMS=5000,  # 5s timeout for socket operations
