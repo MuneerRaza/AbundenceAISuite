@@ -1,3 +1,4 @@
+import asyncio
 from models.state import State
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
@@ -32,7 +33,7 @@ class EvaluatorNode:
         )
         self.chain = self.prompt | self.llm | StrOutputParser()
 
-    def invoke(self, state: State):
+    async def invoke(self, state: State):
         retrieved_docs = state.get("retrieved_docs", [])
         tasks = state.get("tasks", [])
 
@@ -47,12 +48,14 @@ class EvaluatorNode:
                 docs_by_task[source_task].append(doc)
 
         rewritten_docs = []
-        for task, docs in docs_by_task.items():
+        # Process tasks in parallel
+        async def process_task(task, docs):
             # Combine the content of all docs for the task
             combined_context = "\n-----\n".join([doc.page_content for doc in docs])
 
-            # Invoke the LLM once per task
-            rewritten_content = self.chain.invoke({
+            # Run the LLM call in a thread pool since it's sync
+            loop = asyncio.get_event_loop()
+            rewritten_content = await loop.run_in_executor(None, self.chain.invoke, {
                 "task": task,
                 "context": combined_context
             })
@@ -61,6 +64,26 @@ class EvaluatorNode:
             # and combined metadata from the first document in the group
             if docs:
                 new_doc = Document(page_content=rewritten_content, metadata=docs[0].metadata)
-                rewritten_docs.append(new_doc)
+                return new_doc
+            return None
+
+        # Create tasks for parallel processing
+        processing_tasks = [
+            process_task(task, docs) for task, docs in docs_by_task.items()
+        ]
+        
+        # Execute all tasks in parallel
+        results = await asyncio.gather(*processing_tasks, return_exceptions=True)
+        
+        # Collect results
+        for result in results:
+            if isinstance(result, Exception):
+                print(f"Error processing task: {result}")
+            elif result is not None:
+                rewritten_docs.append(result)
 
         return {"retrieved_docs": rewritten_docs}
+
+    # Sync wrapper for backward compatibility
+    def invoke_sync(self, state: State):
+        return asyncio.run(self.invoke(state))

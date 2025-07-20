@@ -1,3 +1,4 @@
+import asyncio
 from config import (
     PROMPT_NO_SUMMARY_NO_CONTENT,
     PROMPT_SUMMARY_ONLY,
@@ -25,7 +26,7 @@ class CallModelNode:
     def __init__(self, model: BaseChatModel):
         self.model = model
     
-    def invoke(self, state: State):
+    async def invoke(self, state: State):
         user_query = state.get("user_query", "")
         final_context = state.get("final_context", "")
         recent_messages = state.get("recent_messages", [])
@@ -38,5 +39,52 @@ class CallModelNode:
         recent_messages.append(
             HumanMessage(content=f"User Query: {user_query}\n\n{final_context.strip()}")
         )
-        response = self.model.invoke([SystemMessage(content=get_prompt_template(state))] + recent_messages)
+        
+        # Run the model call in a thread pool since it's sync
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, 
+            self.model.invoke, 
+            [SystemMessage(content=get_prompt_template(state))] + recent_messages
+        )
         return {"recent_messages": [response], "tasks": [], "web_search_results": [], "retrieved_docs": []}
+
+    async def invoke_stream(self, state: State):
+        """Stream the model response token by token."""
+        user_query = state.get("user_query", "")
+        final_context = state.get("final_context", "")
+        recent_messages = state.get("recent_messages", [])
+        
+        # remove last message if it's a user query
+        if recent_messages and isinstance(recent_messages[-1], HumanMessage):
+            recent_messages = recent_messages[:-1]
+            
+        if not user_query:
+            yield "No user query provided."
+            return
+            
+        recent_messages.append(
+            HumanMessage(content=f"User Query: {user_query}\n\n{final_context.strip()}")
+        )
+        
+        # Create messages for streaming
+        messages = [SystemMessage(content=get_prompt_template(state))] + recent_messages
+        
+        # Stream the response
+        try:
+            # Use the model's stream method if available
+            if hasattr(self.model, 'astream'):
+                async for chunk in self.model.astream(messages):
+                    if hasattr(chunk, 'content') and chunk.content:
+                        yield chunk.content
+            else:
+                # Fallback to regular invoke
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, self.model.invoke, messages)
+                yield response.content
+        except Exception as e:
+            yield f"Error generating response: {str(e)}"
+
+    # Sync wrapper for backward compatibility
+    def invoke_sync(self, state: State):
+        return asyncio.run(self.invoke(state))

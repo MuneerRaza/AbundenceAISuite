@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Sequence
 from config import MESSAGES_TO_RETAIN
 from models.state import State
@@ -42,7 +43,7 @@ class SummarizerNode:
         )
 
 
-    def run(self, state) -> dict:
+    async def run(self, state) -> dict:
         summary = state.values.get("conversation_summary", "")
         all_recent_messages = state.values.get("recent_messages", [])
         messages_to_summarize = all_recent_messages[:-MESSAGES_TO_RETAIN]
@@ -52,7 +53,9 @@ class SummarizerNode:
 
         messages = self._build_prompt_messages(summary, messages_to_summarize)
     
-        response = self.llm.invoke(messages)
+        # Run the LLM call in a thread pool since it's sync
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, self.llm.invoke, messages)
         new_summary = response.content
 
         messages_to_delete = [
@@ -87,3 +90,7 @@ class SummarizerNode:
             SystemMessage(content=system_prompt),
             HumanMessage(content=human_content)
         ]
+
+    # Sync wrapper for backward compatibility
+    def run_sync(self, state) -> dict:
+        return asyncio.run(self.run(state))

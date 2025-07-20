@@ -1,3 +1,4 @@
+import asyncio
 from langgraph.graph import StateGraph, END
 from langchain_core.runnables import RunnableParallel
 from langchain_groq import ChatGroq
@@ -11,7 +12,7 @@ from services.aggregation_node import AggregationNode
 from services.call_model import CallModelNode
 
 from models.state import State
-from utils.checkpointer import checkpointer
+from utils.checkpointer import get_checkpointer
 from config import MODEL_ID, UTILS_MODEL_ID
 
 
@@ -47,21 +48,45 @@ def route_after_decomposition(state: State) -> str:
     return "direct_to_llm"
 
 
+async def parallel_node(state):
+    """Execute retrieval and search in parallel using async operations."""
+    # Create async tasks for parallel execution
+    retrieval_task = retriever.invoke(state)
+    search_task = searcher.invoke(state)
+    
+    # Execute both tasks in parallel
+    retrieval_result, search_result = await asyncio.gather(
+        retrieval_task, search_task, return_exceptions=True
+    )
+    
+    # Handle exceptions and extract results
+    if isinstance(retrieval_result, Exception):
+        print(f"Retrieval failed: {retrieval_result}")
+        retrieved_docs = []
+    else:
+        # Type assertion to help linter understand this is a dict
+        retrieval_dict = retrieval_result if isinstance(retrieval_result, dict) else {}
+        retrieved_docs = retrieval_dict.get('retrieved_docs', [])
+    
+    if isinstance(search_result, Exception):
+        print(f"Search failed: {search_result}")
+        web_search_results = []
+    else:
+        # Type assertion to help linter understand this is a dict
+        search_dict = search_result if isinstance(search_result, dict) else {}
+        web_search_results = search_dict.get('web_search_results', [])
+    
+    return {
+        "retrieved_docs": retrieved_docs,
+        "web_search_results": web_search_results
+    }
+
 def build_workflow():
     workflow = StateGraph(State)
 
     workflow.add_node("intent_detector", intent_detector.invoke)
     workflow.add_node("decompose", decomposer.invoke)
-    
-    def parallel_node(state):
-        parallel_evidence_gatherer = RunnableParallel(retrieval=retriever.invoke, search=searcher.invoke)
-        results = parallel_evidence_gatherer.invoke(state)
-        return {
-            "retrieved_docs": results.get('retrieval', {}).get('retrieved_docs', []),
-            "web_search_results": results.get('search', {}).get('web_search_results', [])
-        }
     workflow.add_node("parallel_evidence", parallel_node)
-
     workflow.add_node("retrieve_only", retriever.invoke)
     workflow.add_node("search_only", searcher.invoke)
     workflow.add_node("evaluate", evaluator.invoke)
@@ -98,7 +123,7 @@ def build_workflow():
     workflow.add_edge("aggregate", "call_model")
     workflow.add_edge("call_model", END)
 
-    graph = workflow.compile(checkpointer=checkpointer)
+    graph = workflow.compile(checkpointer=get_checkpointer())
     # try:
     #     png_bytes = graph.get_graph().draw_mermaid_png()
     #     output_file_path = "workflow_diagram.png"

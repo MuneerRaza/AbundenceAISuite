@@ -1,4 +1,5 @@
 import json
+import asyncio
 from typing import List
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -56,7 +57,7 @@ class DecomposeNode:
             ]
         )
 
-    def invoke(self, state: State):
+    async def invoke(self, state: State):
         recent_messages = state.get("recent_messages", [])
         if not recent_messages:
             return {"tasks": []}
@@ -72,7 +73,9 @@ class DecomposeNode:
         print("---DECOMPOSING TASK---")
         chain = self.prompt | self.llm | self.output_parser
         try:
-            response = chain.invoke({"history": history_str, "query": last_user_message})
+            # Run the chain in a thread pool since it's sync
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, chain.invoke, {"history": history_str, "query": last_user_message})
             # The JsonOutputParser will return a dictionary
             return {"tasks": response.get("tasks", [last_user_message])}
         except json.JSONDecodeError as e:
@@ -82,6 +85,10 @@ class DecomposeNode:
         except Exception as e:
             print(f"An unexpected error occurred during decomposition: {e}")
             return {"tasks": [last_user_message]}
+
+    # Sync wrapper for backward compatibility
+    def invoke_sync(self, state: State):
+        return asyncio.run(self.invoke(state))
 
 if __name__ == "__main__":
     from langchain_groq import ChatGroq
@@ -104,5 +111,5 @@ if __name__ == "__main__":
         "retrieved_docs": [],
         "final_context": "",
     }
-    result = decompose_node.invoke(state)
+    result = asyncio.run(decompose_node.invoke(state))
     print(result)

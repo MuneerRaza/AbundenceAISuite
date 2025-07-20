@@ -7,6 +7,10 @@ class State(TypedDict):
     user_query: str
     conversation_summary: str
     
+    # User and thread identification
+    user_id: str
+    thread_id: str
+    
     do_retrieval: bool
     do_search: bool
     

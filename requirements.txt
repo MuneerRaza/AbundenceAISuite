@@ -1,7 +1,7 @@
 langchain
 langgraph
 langgraph-checkpoint-mongodb
-pymongo 
+pymongo[asyncio]
 langchain-community
 langchain-huggingface
 langchain-groq

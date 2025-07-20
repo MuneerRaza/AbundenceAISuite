@@ -23,8 +23,6 @@ RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-12-v2"
 
 SUMMARY_THRESHOLD = 8
 MESSAGES_TO_RETAIN = 4
-USER_ID = "test_user"
-THREAD_ID = "b"
 
 PROMPT_NO_SUMMARY_NO_CONTENT = """
 **Your Role:** You are a helpful and intelligent assistant named `Abundance AI`.
