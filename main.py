@@ -62,6 +62,8 @@ async def run_workflow_async():
             "retrieved_docs": [],
             "web_search_results": [],
             "final_context": "",
+            "user_id": USER_ID,
+            "thread_id": THREAD_ID,
         })
 
         response = await graph.ainvoke(initial_state, config=config)

@@ -65,15 +65,15 @@ async def lifespan(app: FastAPI):
     """Lifespan event handler for FastAPI."""
     # Startup
     get_workflow_graph()
-    print("🚀 Abundance AI Suite API started successfully!")
+    print("🚀 IntelliFlow AI API started successfully!")
     yield
     # Shutdown
-    print("🛑 Abundance AI Suite API shutting down...")
+    print("🛑 IntelliFlow AI API shutting down...")
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
-    title="Abundance AI Suite API",
-    description="A comprehensive AI assistant API with document indexing, chat, and data management capabilities",
+    title="IntelliFlow AI API",
+    description="Advanced AI workflow orchestration platform with multi-modal capabilities: document processing, web search, and intelligent conversation management",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -137,7 +137,7 @@ class ChatHistoryResponse(BaseModel):
 async def root():
     """Root endpoint with API information."""
     return {
-        "message": "Welcome to Abundance AI Suite API",
+        "message": "Welcome to IntelliFlow AI API",
         "version": "1.0.0",
         "docs": "/docs",
         "endpoints": {
@@ -492,7 +492,7 @@ async def health_check():
     
     return {
         "status": "healthy",
-        "message": "Abundance AI Suite API is running",
+        "message": "IntelliFlow AI API is running",
         "workflow_initialized": workflow_graph is not None,
         "qdrant_status": qdrant_status
     }
