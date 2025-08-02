@@ -7,6 +7,9 @@ QDRANT_COLLECTION = "attachments"
 CACHE_DIR = "./cache"
 RERANK_THRESHOLD = 0.1
 
+THREAD_ID = "test_thread"
+USER_ID = "test_user"
+
 # Model configuration
 MODEL_ID = "llama-3.3-70b-versatile"
 UTILS_MODEL_ID = "llama3-8b-8192"

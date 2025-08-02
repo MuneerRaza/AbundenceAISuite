@@ -17,13 +17,13 @@ def get_mongo_client():
         db_uri = os.getenv("DB_URI", "mongodb://localhost:27017")
         _client = AsyncMongoClient(
             db_uri,
-            maxPoolSize=10,  # Connection pool size
-            minPoolSize=1,   # Minimum connections
-            serverSelectionTimeoutMS=5000,  # 5s timeout for server selection
-            connectTimeoutMS=10000,  # 10s timeout for connection
-            socketTimeoutMS=5000,  # 5s timeout for socket operations
-            retryWrites=True,  # Retry write operations
-            retryReads=True    # Retry read operations
+            maxPoolSize=10,
+            minPoolSize=1,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=5000,
+            retryWrites=True,
+            retryReads=True
         )
     return _client
 
